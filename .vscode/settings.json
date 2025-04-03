@@ -1,3 +1,949 @@
-{
-    "cmake.sourceDirectory": "C:/Users/user/Documents/GitHub/parkingmonitoring/flutter_application_1/linux"
+// main.dart
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:async';
+import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
+
+void main() {
+  runApp(const ParkingManagementApp());
+}
+
+class ParkingManagementApp extends StatelessWidget {
+  const ParkingManagementApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '대학교 주차장 관리 시스템',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      home: const HomePage(),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({Key? key}) : super(key: key);
+
+  @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  int _selectedIndex = 0;
+  final List<Widget> _pages = [
+    const DashboardPage(),
+    const ParkingStatusPage(),
+    const ParkingHistoryPage(),
+    const SettingsPage(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('대학교 주차장 관리 시스템')),
+      body: _pages[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: '대시보드'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.local_parking),
+            label: '주차 현황',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: '이용 내역'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: '설정'),
+        ],
+      ),
+    );
+  }
+}
+
+// 대시보드 페이지
+class DashboardPage extends StatefulWidget {
+  const DashboardPage({Key? key}) : super(key: key);
+
+  @override
+  _DashboardPageState createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  Map<String, dynamic> statistics = {
+    "total_spaces": 0,
+    "occupied_spaces": 0,
+    "available_spaces": 0,
+    "occupancy_rate": 0.0,
+    "daily_usage": 0,
+    "vehicle_types": {},
+  };
+
+  bool isLoading = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStatistics();
+    // 1분마다 자동 갱신
+    _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      _fetchStatistics();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchStatistics() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('http://localhost:5000/api/statistics'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          statistics = json.decode(response.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        _showErrorSnackBar('통계 데이터를 불러오는데 실패했습니다.');
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      _showErrorSnackBar('서버 연결 오류: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _fetchStatistics,
+      child:
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 현재 날짜 및 시간 표시
+                    Text(
+                      '${DateFormat('yyyy년 MM월 dd일 HH:mm').format(DateTime.now())} 기준',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 주차 공간 현황 카드
+                    Card(
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '주차장 현황',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // 원형 차트
+                            SizedBox(
+                              height: 200,
+                              child: PieChart(
+                                PieChartData(
+                                  sections: [
+                                    PieChartSectionData(
+                                      color: Colors.red,
+                                      value:
+                                          statistics['occupied_spaces']
+                                              .toDouble(),
+                                      title: '사용 중',
+                                      titleStyle: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    PieChartSectionData(
+                                      color: Colors.green,
+                                      value:
+                                          statistics['available_spaces']
+                                              .toDouble(),
+                                      title: '사용 가능',
+                                      titleStyle: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                  centerSpaceRadius: 40,
+                                  sectionsSpace: 2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // 상세 정보
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildStatItem(
+                                  '전체',
+                                  '${statistics['total_spaces']}대',
+                                  Colors.blue,
+                                ),
+                                _buildStatItem(
+                                  '사용 중',
+                                  '${statistics['occupied_spaces']}대',
+                                  Colors.red,
+                                ),
+                                _buildStatItem(
+                                  '사용 가능',
+                                  '${statistics['available_spaces']}대',
+                                  Colors.green,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            // 점유율
+                            LinearProgressIndicator(
+                              value: statistics['occupancy_rate'] / 100,
+                              backgroundColor: Colors.grey[300],
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                statistics['occupancy_rate'] > 90
+                                    ? Colors.red
+                                    : statistics['occupancy_rate'] > 70
+                                    ? Colors.orange
+                                    : Colors.green,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '점유율: ${statistics['occupancy_rate'].toStringAsFixed(1)}%',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 오늘 이용 현황 카드
+                    Card(
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '오늘 이용 현황',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.directions_car,
+                                  color: Colors.blue,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '오늘 총 이용 차량: ${statistics['daily_usage']}대',
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // 차량 유형별 통계
+                            const Text(
+                              '차량 유형별 현황',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // 차량 유형별 통계 표시
+                            if (statistics['vehicle_types'] != null &&
+                                statistics['vehicle_types'].isNotEmpty)
+                              Column(
+                                children:
+                                    statistics['vehicle_types'].entries
+                                        .map<Widget>((entry) {
+                                          String vehicleType =
+                                              entry.key ?? 'unknown';
+                                          int count = entry.value;
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 4.0,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  vehicleType == 'car'
+                                                      ? Icons.directions_car
+                                                      : vehicleType == 'bus'
+                                                      ? Icons.directions_bus
+                                                      : vehicleType == 'truck'
+                                                      ? Icons.local_shipping
+                                                      : Icons.help_outline,
+                                                  color: _getVehicleTypeColor(
+                                                    vehicleType,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _getVehicleTypeName(
+                                                    vehicleType,
+                                                  ),
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  '$count대',
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        })
+                                        .toList(),
+                              )
+                            else
+                              const Text('차량 유형 데이터가 없습니다.'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+    );
+  }
+
+  Widget _buildStatItem(String title, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          title,
+          style: TextStyle(color: color, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+      ],
+    );
+  }
+
+  String _getVehicleTypeName(String type) {
+    switch (type) {
+      case 'car':
+        return '승용차';
+      case 'bus':
+        return '버스';
+      case 'truck':
+        return '트럭';
+      default:
+        return '기타';
+    }
+  }
+
+  Color _getVehicleTypeColor(String type) {
+    switch (type) {
+      case 'car':
+        return Colors.blue;
+      case 'bus':
+        return Colors.green;
+      case 'truck':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// 주차 현황 페이지
+class ParkingStatusPage extends StatefulWidget {
+  const ParkingStatusPage({Key? key}) : super(key: key);
+
+  @override
+  _ParkingStatusPageState createState() => _ParkingStatusPageState();
+}
+
+class _ParkingStatusPageState extends State<ParkingStatusPage> {
+  Map<String, dynamic> parkingStatus = {};
+  bool isLoading = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchParkingStatus();
+    // 30초마다 자동 갱신
+    _timer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _fetchParkingStatus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchParkingStatus() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('http://localhost:5000/api/status'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          parkingStatus = json.decode(response.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        _showErrorSnackBar('주차 현황 데이터를 불러오는데 실패했습니다.');
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      _showErrorSnackBar('서버 연결 오류: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _fetchParkingStatus,
+      child:
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${DateFormat('yyyy년 MM월 dd일 HH:mm').format(DateTime.now())} 기준',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 주차 공간 그리드 뷰
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            childAspectRatio: 3 / 2,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                          ),
+                      itemCount: parkingStatus.length,
+                      itemBuilder: (context, index) {
+                        String spaceId = parkingStatus.keys.elementAt(index);
+                        Map<String, dynamic> spaceInfo = parkingStatus[spaceId];
+                        bool isOccupied = spaceInfo['status'] == 'occupied';
+
+                        return Card(
+                          elevation: 2,
+                          color:
+                              isOccupied ? Colors.red[100] : Colors.green[100],
+                          child: InkWell(
+                            onTap: () {
+                              _showParkingSpaceDetails(spaceId, spaceInfo);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    spaceId,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Icon(
+                                    isOccupied
+                                        ? Icons.directions_car
+                                        : Icons.check_circle,
+                                    color:
+                                        isOccupied ? Colors.red : Colors.green,
+                                    size: 28,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    isOccupied ? '사용 중' : '사용 가능',
+                                    style: TextStyle(
+                                      color:
+                                          isOccupied
+                                              ? Colors.red
+                                              : Colors.green,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+    );
+  }
+
+  void _showParkingSpaceDetails(
+    String spaceId,
+    Map<String, dynamic> spaceInfo,
+  ) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('주차 공간 $spaceId 상세 정보'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '상태: ${spaceInfo['status'] == 'occupied' ? '사용 중' : '사용 가능'}',
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '마지막 업데이트: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.parse(spaceInfo['last_updated']))}',
+                ),
+                if (spaceInfo['status'] == 'occupied' &&
+                    spaceInfo['vehicle_type'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '차량 유형: ${_getVehicleTypeName(spaceInfo['vehicle_type'])}',
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('닫기'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  String _getVehicleTypeName(String type) {
+    switch (type) {
+      case 'car':
+        return '승용차';
+      case 'bus':
+        return '버스';
+      case 'truck':
+        return '트럭';
+      default:
+        return '기타';
+    }
+  }
+}
+
+// 주차 이력 페이지
+class ParkingHistoryPage extends StatefulWidget {
+  const ParkingHistoryPage({Key? key}) : super(key: key);
+
+  @override
+  _ParkingHistoryPageState createState() => _ParkingHistoryPageState();
+}
+
+class _ParkingHistoryPageState extends State<ParkingHistoryPage> {
+  List<dynamic> parkingHistory = [];
+  bool isLoading = true;
+  int selectedDays = 7;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchParkingHistory();
+  }
+
+  Future<void> _fetchParkingHistory() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('http://localhost:5000/api/history?days=$selectedDays'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          parkingHistory = json.decode(response.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        _showErrorSnackBar('주차 이력 데이터를 불러오는데 실패했습니다.');
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      _showErrorSnackBar('서버 연결 오류: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 필터 옵션
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '주차 이력',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              DropdownButton<int>(
+                value: selectedDays,
+                items:
+                    [1, 3, 7, 14, 30].map((int days) {
+                      return DropdownMenuItem<int>(
+                        value: days,
+                        child: Text('최근 $days일'),
+                      );
+                    }).toList(),
+                onChanged: (int? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      selectedDays = newValue;
+                    });
+                    _fetchParkingHistory();
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+
+        // 이력 목록
+        Expanded(
+          child:
+              isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : parkingHistory.isEmpty
+                  ? const Center(child: Text('주차 이력이 없습니다.'))
+                  : ListView.builder(
+                    itemCount: parkingHistory.length,
+                    itemBuilder: (context, index) {
+                      Map<String, dynamic> record = parkingHistory[index];
+                      DateTime entryTime = DateTime.parse(record['entry_time']);
+                      DateTime? exitTime =
+                          record['exit_time'] != null
+                              ? DateTime.parse(record['exit_time'])
+                              : null;
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16.0,
+                          vertical: 8.0,
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            record['vehicle_type'] == 'car'
+                                ? Icons.directions_car
+                                : record['vehicle_type'] == 'bus'
+                                ? Icons.directions_bus
+                                : record['vehicle_type'] == 'truck'
+                                ? Icons.local_shipping
+                                : Icons.help_outline,
+                            color: _getVehicleTypeColor(record['vehicle_type']),
+                          ),
+                          title: Text(
+                            '주차 공간: ${record['space_id']}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '입차: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(entryTime)}',
+                              ),
+                              if (exitTime != null)
+                                Text(
+                                  '출차: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(exitTime)}',
+                                )
+                              else
+                                const Text('출차: 아직 주차 중'),
+                              if (record['duration'] != null)
+                                Text('주차 시간: ${record['duration']}'),
+                            ],
+                          ),
+                          isThreeLine: true,
+                        ),
+                      );
+                    },
+                  ),
+        ),
+      ],
+    );
+  }
+
+  Color _getVehicleTypeColor(String type) {
+    switch (type) {
+      case 'car':
+        return Colors.blue;
+      case 'bus':
+        return Colors.green;
+      case 'truck':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// 설정 페이지
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({Key? key}) : super(key: key);
+
+  @override
+  _SettingsPageState createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  bool isSystemRunning = true;
+
+  Future<void> _startSystem() async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:5000/api/start'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          isSystemRunning = true;
+        });
+        _showSnackBar('시스템이 시작되었습니다.');
+      } else {
+        _showSnackBar('시스템 시작에 실패했습니다.');
+      }
+    } catch (e) {
+      _showSnackBar('서버 연결 오류: $e');
+    }
+  }
+
+  Future<void> _stopSystem() async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:5000/api/stop'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          isSystemRunning = false;
+        });
+        _showSnackBar('시스템이 중지되었습니다.');
+      } else {
+        _showSnackBar('시스템 중지에 실패했습니다.');
+      }
+    } catch (e) {
+      _showSnackBar('서버 연결 오류: $e');
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '시스템 설정',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+
+          // 시스템 상태 카드
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '시스템 상태',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Icon(
+                        isSystemRunning ? Icons.check_circle : Icons.cancel,
+                        color: isSystemRunning ? Colors.green : Colors.red,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isSystemRunning ? '실행 중' : '중지됨',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isSystemRunning ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: isSystemRunning ? null : _startSystem,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('시작'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey[300],
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: isSystemRunning ? _stopSystem : null,
+                        icon: const Icon(Icons.stop),
+                        label: const Text('중지'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey[300],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 앱 정보 카드
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    '앱 정보',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 16),
+                  ListTile(
+                    leading: Icon(Icons.info),
+                    title: Text('버전'),
+                    subtitle: Text('1.0.0'),
+                  ),
+                  Divider(),
+                  ListTile(
+                    leading: Icon(Icons.developer_mode),
+                    title: Text('개발자'),
+                    subtitle: Text('대학교 주차장 관리 시스템 팀'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
